@@ -1,0 +1,26 @@
+{
+  "civilite": "M",
+  "nom": "DUPONT",
+  "nomJeuneFille": "",
+  "prenom": "Jean",
+  "dateNaissance": "12/03/1950",
+  "dateDeces": "28/06/2026",
+  "heureDeces": "14h30",
+  "villeDeces": "Nanterre",
+  "codePostal": "92000",
+  "tailleDefunt": "175",
+  "epaulement": "45",
+  "coudeACoude": "50",
+  "epaisseur": "30",
+  "dateAdmission": "01/07/2026",
+  "heureAdmission": "09h00",
+  "dateDepart": "03/07/2026",
+  "heureDepart": "10h00",
+  "operateur": "Pompes Funèbres Martin",
+  "dateCommande": "01/07/2026",
+  "prestations": {
+    "704NTR": 1,
+    "756NTR": 1,
+    "728NTR": 2
+  }
+}
