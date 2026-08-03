@@ -2,6 +2,7 @@ package devis
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -32,7 +33,10 @@ func GenerateXLSX(d Devis, templatePath, outPath string) error {
 		return err
 	}
 
-	if err := emphasizeNomEtOperateur(f); err != nil {
+	if err := adaptImportantFields(f); err != nil {
+		return err
+	}
+	if err := preparePrestationsLayout(f); err != nil {
 		return err
 	}
 
@@ -45,7 +49,11 @@ func GenerateXLSX(d Devis, templatePath, outPath string) error {
 	if err := f.SetCellValue(SheetName, "G25", total); err != nil {
 		return err
 	}
-	_ = f.SetCellStyle(SheetName, "G25", "G25", mustStyleID(f, "#,##0.00 \"€\""))
+	// Keep the template's number format and borders, then make the amount
+	// stand out. Replacing the style would remove the cell border.
+	if err := setLargeBoldCell(f, "G25", 18); err != nil {
+		return err
+	}
 
 	// Keep only the filled-in devis sheet: the "vierge" (blank) and
 	// "FORFAITS" tabs from the template workbook must not show up in the
@@ -75,43 +83,207 @@ func keepOnlySheet(f *excelize.File, sheetToKeep string) error {
 	return nil
 }
 
-// emphasizeNomEtOperateur enlarges the font of the "Nom" and "Opérateur
-// Funéraire / Ville" fields to make them stand out on the document, while
-// keeping the original font and bold style.
-func emphasizeNomEtOperateur(f *excelize.File) error {
-	const largeSize = 16
+// adaptImportantFields keeps the name, first name and funeral operator
+// inside their frames. Their font always remains the same size; only the
+// field height grows when a long value needs additional lines.
+func adaptImportantFields(f *excelize.File) error {
+	// The operator area is visually a single field across E:H, but was not
+	// merged in the source template. Merging it prevents text flowing over the
+	// neighbouring cells when a company name is long.
+	if err := f.MergeCell(SheetName, "E5", "H5"); err != nil {
+		return fmt.Errorf("merging funeral operator field: %w", err)
+	}
 
-	for _, cell := range []string{"A5", "E5"} {
-		styleID, err := f.GetCellStyle(SheetName, cell)
+	rowHeights := map[int]float64{}
+	for _, field := range []struct {
+		cell     string
+		row      int
+		lineSize int
+	}{
+		{cell: "A5", row: 5, lineSize: 34},
+		{cell: "A9", row: 9, lineSize: 34},
+		{cell: "E5", row: 5, lineSize: 34},
+	} {
+		if err := setAdaptiveHeaderCell(f, field.cell); err != nil {
+			return err
+		}
+		value, err := f.GetCellValue(SheetName, field.cell)
 		if err != nil {
 			return err
 		}
-		style, err := f.GetStyle(styleID)
-		if err != nil {
-			return err
+		height := headerRowHeight(value, field.lineSize)
+		if height > rowHeights[field.row] {
+			rowHeights[field.row] = height
 		}
-		if style.Font == nil {
-			style.Font = &excelize.Font{}
-		}
-		style.Font.Size = largeSize
-		style.Font.Bold = true
-
-		newStyleID, err := f.NewStyle(style)
-		if err != nil {
-			return err
-		}
-		if err := f.SetCellStyle(SheetName, cell, cell, newStyleID); err != nil {
+	}
+	for row, height := range rowHeights {
+		if err := f.SetRowHeight(SheetName, row, height); err != nil {
 			return err
 		}
 	}
+	return nil
+}
 
-	// Row 5 now holds bigger text, so we increase its height slightly to
-	// give the larger font some room (avoids visual clipping).
-	if err := f.SetRowHeight(SheetName, 5, 30); err != nil {
+func headerRowHeight(value string, charactersPerLine int) float64 {
+	lines := math.Ceil(float64(len([]rune(value))) / float64(charactersPerLine))
+	if lines < 1 {
+		lines = 1
+	}
+	// 24 points per line gives the fixed 16 pt font enough room without
+	// clipping its descenders when the document is converted to PDF.
+	return math.Max(30, lines*24)
+}
+
+func setAdaptiveHeaderCell(f *excelize.File, cell string) error {
+	styleID, err := f.GetCellStyle(SheetName, cell)
+	if err != nil {
+		return err
+	}
+	style, err := f.GetStyle(styleID)
+	if err != nil {
 		return err
 	}
 
+	styleCopy := *style
+	if style.Font == nil {
+		styleCopy.Font = &excelize.Font{}
+	} else {
+		fontCopy := *style.Font
+		styleCopy.Font = &fontCopy
+	}
+	styleCopy.Font.Size = 16
+	styleCopy.Font.Bold = true
+	if style.Alignment == nil {
+		styleCopy.Alignment = &excelize.Alignment{}
+	} else {
+		alignmentCopy := *style.Alignment
+		styleCopy.Alignment = &alignmentCopy
+	}
+	styleCopy.Alignment.WrapText = true
+	styleCopy.Alignment.Vertical = "center"
+
+	newStyleID, err := f.NewStyle(&styleCopy)
+	if err != nil {
+		return err
+	}
+	return f.SetCellStyle(SheetName, cell, cell, newStyleID)
+}
+
+// setLargeBoldCell preserves a cell's existing style and only enlarges and
+// bolds its font.
+func setLargeBoldCell(f *excelize.File, cell string, size float64) error {
+	styleID, err := f.GetCellStyle(SheetName, cell)
+	if err != nil {
+		return err
+	}
+	style, err := f.GetStyle(styleID)
+	if err != nil {
+		return err
+	}
+
+	// GetStyle can return a style shared by several cells in the template.
+	// Copy it before changing the font, otherwise unrelated cells (including
+	// long prestation labels) inherit the enlarged font as well.
+	styleCopy := *style
+	if style.Font == nil {
+		styleCopy.Font = &excelize.Font{}
+	} else {
+		fontCopy := *style.Font
+		styleCopy.Font = &fontCopy
+	}
+	styleCopy.Font.Size = size
+	styleCopy.Font.Bold = true
+
+	newStyleID, err := f.NewStyle(&styleCopy)
+	if err != nil {
+		return err
+	}
+	return f.SetCellStyle(SheetName, cell, cell, newStyleID)
+}
+
+// preparePrestationsLayout gives the prestation description enough room to
+// wrap inside its bordered cell and moves each NTR code into its own
+// right-aligned cell.
+func preparePrestationsLayout(f *excelize.File) error {
+	lignes, err := listPrestations(f)
+	if err != nil {
+		return err
+	}
+
+	// Keep the table's total width unchanged: D becomes part of the label area
+	// and E is a compact, dedicated code column.
+	if err := f.SetColWidth(SheetName, "D", "D", 22); err != nil {
+		return err
+	}
+	if err := f.SetColWidth(SheetName, "E", "E", 12); err != nil {
+		return err
+	}
+
+	for _, ligne := range lignes {
+		row := ligne.Row
+		labelCell := fmt.Sprintf("A%d", row)
+		codeCell := fmt.Sprintf("E%d", row)
+
+		if err := f.UnmergeCell(SheetName, labelCell, codeCell); err != nil {
+			return fmt.Errorf("unmerging prestation row %d: %w", row, err)
+		}
+		if err := f.MergeCell(SheetName, labelCell, fmt.Sprintf("D%d", row)); err != nil {
+			return fmt.Errorf("merging prestation label row %d: %w", row, err)
+		}
+		if err := f.SetCellValue(SheetName, labelCell, prestationLabel(ligne.Libelle)); err != nil {
+			return err
+		}
+		if err := f.SetCellValue(SheetName, codeCell, ligne.Code); err != nil {
+			return err
+		}
+		if err := setPrestationAlignment(f, labelCell, "left", true); err != nil {
+			return err
+		}
+		if err := setPrestationAlignment(f, codeCell, "right", false); err != nil {
+			return err
+		}
+		// Two lines fit comfortably, including the longest current labels, with
+		// room left for a future wording change.
+		if err := f.SetRowHeight(SheetName, row, 48); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+func prestationLabel(value string) string {
+	return strings.TrimSpace(codeRegexp.ReplaceAllString(value, ""))
+}
+
+// setPrestationAlignment changes only the alignment of a cell while
+// preserving its existing font, fill, number format and borders.
+func setPrestationAlignment(f *excelize.File, cell, horizontal string, wrapText bool) error {
+	styleID, err := f.GetCellStyle(SheetName, cell)
+	if err != nil {
+		return err
+	}
+	style, err := f.GetStyle(styleID)
+	if err != nil {
+		return err
+	}
+
+	styleCopy := *style
+	if style.Alignment == nil {
+		styleCopy.Alignment = &excelize.Alignment{}
+	} else {
+		alignmentCopy := *style.Alignment
+		styleCopy.Alignment = &alignmentCopy
+	}
+	styleCopy.Alignment.Horizontal = horizontal
+	styleCopy.Alignment.Vertical = "center"
+	styleCopy.Alignment.WrapText = wrapText
+
+	newStyleID, err := f.NewStyle(&styleCopy)
+	if err != nil {
+		return err
+	}
+	return f.SetCellStyle(SheetName, cell, cell, newStyleID)
 }
 
 // fillInformationsGenerales fills in the header cells (identity, dates,
@@ -132,9 +304,6 @@ func fillInformationsGenerales(f *excelize.File, d Devis) error {
 		return err
 	}
 	if err := set("E5", labelValue("Opérateur Funéraire / Ville", d.Operateur)); err != nil {
-		return err
-	}
-	if err := set("A6", civilite(d.Civilite)); err != nil {
 		return err
 	}
 	if d.NomJeuneFille != "" {
@@ -209,6 +378,9 @@ func fillPrestations(f *excelize.File, d Devis) (float64, error) {
 		if err := f.SetCellValue(SheetName, gCell, qte); err != nil {
 			return 0, err
 		}
+		if err := setLargeBoldCell(f, gCell, 16); err != nil {
+			return 0, err
+		}
 		amount := ligne.PrixTTC * qte
 		if err := f.SetCellValue(SheetName, hCell, amount); err != nil {
 			return 0, err
@@ -243,10 +415,21 @@ func listPrestations(f *excelize.File) ([]PrestationLigne, error) {
 		}
 		libelle := strings.TrimSpace(row[0])
 		matches := codeRegexp.FindStringSubmatch(libelle)
-		if matches == nil {
-			continue
+		code := ""
+		if matches != nil {
+			code = matches[1]
+		} else {
+			// Generated workbooks place the code in column E so the
+			// description can use the full A:D width.
+			code, err = f.GetCellValue(SheetName, fmt.Sprintf("E%d", rowNum))
+			if err != nil {
+				return nil, fmt.Errorf("reading prestation code E%d: %w", rowNum, err)
+			}
+			code = strings.TrimSpace(code)
+			if !strings.HasSuffix(code, "NTR") {
+				continue
+			}
 		}
-		code := matches[1]
 
 		// Re-read cell F as a raw value (RawCellValue) instead of from
 		// `row`, which contains the text already formatted for display
