@@ -41,7 +41,8 @@ func ConvertToPDF(xlsxPath, outDir string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "soffice",
+	cmd := exec.CommandContext(
+		ctx, "soffice",
 		"--headless",
 		"--norestore",
 		"--convert-to", "pdf",
