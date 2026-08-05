@@ -25,9 +25,10 @@ import (
 )
 
 var (
-	addr         = flag.String("addr", ":8080", "server listen address")
-	templatePath = flag.String("template", "./template/devis_template.xlsx", "path to the template workbook")
-	workDir      = flag.String("workdir", "./tmp", "working directory for generated files")
+	addr           = flag.String("addr", ":8080", "server listen address")
+	templatePath   = flag.String("template", "./template/devis_template.xlsx", "path to the template workbook")
+	operateursPath = flag.String("operateurs", "./data/operateurs.xlsx", "path to the funeral operators workbook")
+	workDir        = flag.String("workdir", "./tmp", "working directory for generated files")
 )
 
 func main() {
@@ -40,17 +41,38 @@ func main() {
 		log.Fatalf("could not create working directory: %v", err)
 	}
 
+	operateurs, err := devis.ListerOperateurs(*operateursPath)
+	if err != nil {
+		log.Fatalf("could not read funeral operators (%s): %v", *operateursPath, err)
+	}
+	communes, err := devis.ChargerCommunesParCodePostal(*operateursPath)
+	if err != nil {
+		log.Fatalf("could not read postal codes (%s): %v", *operateursPath, err)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/devis", withCORS(handleGenererDevis))
 	mux.HandleFunc("OPTIONS /api/devis", withCORS(func(w http.ResponseWriter, r *http.Request) {}))
 	mux.HandleFunc("GET /api/prestations", withCORS(handleListerPrestations))
 	mux.HandleFunc("OPTIONS /api/prestations", withCORS(func(w http.ResponseWriter, r *http.Request) {}))
+	mux.HandleFunc("GET /api/operateurs", withCORS(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, operateurs)
+	}))
+	mux.HandleFunc("OPTIONS /api/operateurs", withCORS(func(w http.ResponseWriter, r *http.Request) {}))
+	mux.HandleFunc("GET /api/villes", withCORS(func(w http.ResponseWriter, r *http.Request) {
+		villes := communes[r.URL.Query().Get("codePostal")]
+		if villes == nil {
+			villes = []string{}
+		}
+		writeJSON(w, http.StatusOK, villes)
+	}))
+	mux.HandleFunc("OPTIONS /api/villes", withCORS(func(w http.ResponseWriter, r *http.Request) {}))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	log.Printf("devis-api server started on %s (template: %s)", *addr, *templatePath)
+	log.Printf("devis-api server started on %s (template: %s, operateurs: %s)", *addr, *templatePath, *operateursPath)
 	log.Fatal(http.ListenAndServe(*addr, mux))
 }
 
