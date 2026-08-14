@@ -36,7 +36,7 @@ func ConvertToPDF(xlsxPath, outDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("creating temporary profile: %w", err)
 	}
-	defer os.RemoveAll(profileDir)
+	defer func() { _ = os.RemoveAll(profileDir) }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

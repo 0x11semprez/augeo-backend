@@ -27,7 +27,7 @@ func GenerateXLSX(d Devis, templatePath, outPath string) error {
 	if err != nil {
 		return fmt.Errorf("opening template: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if err := fillInformationsGenerales(f, d); err != nil {
 		return err
@@ -458,7 +458,7 @@ func ListerPrestationsDisponibles(templatePath string) ([]PrestationLigne, error
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return listPrestations(f)
 }
 
@@ -485,25 +485,3 @@ func orTiret(value string) string {
 	return value
 }
 
-func civilite(c string) string {
-	c = strings.TrimSpace(strings.ToUpper(c))
-	switch c {
-	case "M", "MONSIEUR":
-		return "M."
-	case "MME", "MADAME":
-		return "Mme"
-	default:
-		return "M / Mme"
-	}
-}
-
-// mustStyleID creates (or retrieves) a numeric style and returns its ID.
-// On error, it returns the default style (0) rather than failing the whole
-// generation over a simple display-format issue.
-func mustStyleID(f *excelize.File, numFmt string) int {
-	style, err := f.NewStyle(&excelize.Style{CustomNumFmt: &numFmt})
-	if err != nil {
-		return 0
-	}
-	return style
-}

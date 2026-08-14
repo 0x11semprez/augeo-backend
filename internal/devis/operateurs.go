@@ -37,7 +37,7 @@ func ListerOperateurs(path string) ([]Operateur, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening operators workbook: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	rows, err := f.GetRows(sheetOperateurs)
 	if err != nil {
@@ -83,7 +83,7 @@ func ChargerCommunesParCodePostal(path string) (map[string][]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening operators workbook: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	rows, err := f.GetRows(sheetCommunes)
 	if err != nil {

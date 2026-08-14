@@ -125,7 +125,7 @@ func handleGenererDevis(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not generate devis: "+err.Error())
 		return
 	}
-	defer os.Remove(xlsxPath)
+	defer func() { _ = os.Remove(xlsxPath) }()
 
 	fileName := "devis_" + safe(d.Nom) + "_" + safe(d.Prenom)
 
@@ -141,7 +141,7 @@ func handleGenererDevis(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not convert to PDF: "+err.Error())
 		return
 	}
-	defer os.Remove(pdfPath)
+	defer func() { _ = os.Remove(pdfPath) }()
 
 	w.Header().Set("Content-Type", "application/pdf")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+fileName+`.pdf"`)
