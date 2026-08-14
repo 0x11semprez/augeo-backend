@@ -303,7 +303,7 @@ func fillInformationsGenerales(f *excelize.File, d Devis) error {
 	if err := set("A5", labelValue("Nom", d.Nom)); err != nil {
 		return err
 	}
-	if err := set("E5", labelValue("Opérateur Funéraire / Ville", d.Operateur)); err != nil {
+	if err := set("E5", labelValue("Opérateur Funéraire / Ville", "\n"+d.Operateur)); err != nil {
 		return err
 	}
 	if d.NomJeuneFille != "" {
