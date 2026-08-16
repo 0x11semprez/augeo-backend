@@ -151,9 +151,11 @@ func adaptImportantFields(f *excelize.File, d Devis) error {
 		return fmt.Errorf("merging funeral operator name: %w", err)
 	}
 
-	// labelFontSize matches the template's original size for "Nom"/"Prénom"
-	// (and every other field label, e.g. "Nom de naissance"): only the value
-	// that follows the label stands out.
+	// labelFontSize matches the template's original size for every field
+	// label on the form: only the value that follows a label stands out.
+	// identityFontSize applies to Nom, Prénom and Nom de naissance alike so
+	// the three sit at the same size instead of Nom de naissance looking
+	// undersized next to the other two.
 	const labelFontSize = 11
 	const identityFontSize = 20
 	const operatorFontSize = 16
@@ -168,6 +170,7 @@ func adaptImportantFields(f *excelize.File, d Devis) error {
 		label, value     string // when set, cell renders as "label : value" with label at labelFontSize and value at fontSize
 	}{
 		{cell: "A6", row: 6, startCol: "A", endCol: "C", fontSize: identityFontSize, label: "Nom", value: d.Nom},
+		{cell: "A8", row: 8, startCol: "A", endCol: "C", fontSize: identityFontSize, label: "Nom de naissance", value: d.NomNaissance},
 		{cell: "A10", row: 10, startCol: "A", endCol: "C", fontSize: identityFontSize, label: "Prénom", value: d.Prenom},
 		{cell: "E7", row: 7, startCol: "E", endCol: "H", horizontal: "center", fontSize: operatorFontSize},
 	} {
@@ -204,20 +207,20 @@ func adaptImportantFields(f *excelize.File, d Devis) error {
 // runs so the label and the value can each have their own font size - a
 // single cell's alignment applies uniformly, but rich-text runs each carry
 // their own font, which is what lets the label stay small while the value
-// stands out.
+// stands out. Neither run is bold: bold is reserved for the order total
+// (G26), the only figure meant to stand out that way.
 func setSplitSizeCell(f *excelize.File, cell, label, value string, labelSize, valueSize float64) error {
 	return f.SetCellRichText(SheetName, cell, []excelize.RichTextRun{
-		{Text: label + " : ", Font: &excelize.Font{Family: "Calibri", Size: labelSize, Bold: true}},
-		{Text: value, Font: &excelize.Font{Family: "Calibri", Size: valueSize, Bold: true}},
+		{Text: label + " : ", Font: &excelize.Font{Family: "Calibri", Size: labelSize}},
+		{Text: value, Font: &excelize.Font{Family: "Calibri", Size: valueSize}},
 	})
 }
 
-// adaptSecondaryFields prevents the funeral operator's label, "Nom de
-// naissance", the stay dates/times and the body measurements from being
-// cropped when a value is unusually long. Unlike adaptImportantFields, it
-// doesn't change font size, weight or alignment - it only turns on wrapping
-// and grows the row height to fit, so short values (the common case) render
-// exactly as before.
+// adaptSecondaryFields prevents the funeral operator's label, the stay
+// dates/times and the body measurements from being cropped when a value is
+// unusually long. Unlike adaptImportantFields, it doesn't change font size,
+// weight or alignment - it only turns on wrapping and grows the row height
+// to fit, so short values (the common case) render exactly as before.
 func adaptSecondaryFields(f *excelize.File) error {
 	// A12/A13/A14 aren't merged across their usable width in the template
 	// (unlike Nom/Prénom): merge them so wrapping uses the real available
@@ -237,7 +240,6 @@ func adaptSecondaryFields(f *excelize.File) error {
 		startCol, endCol string
 	}{
 		{cell: "E6", row: 6, startCol: "E", endCol: "H"},
-		{cell: "A8", row: 8, startCol: "A", endCol: "C"},
 		{cell: "A12", row: 12, startCol: "A", endCol: "D"},
 		{cell: "A13", row: 13, startCol: "A", endCol: "D"},
 		{cell: "A14", row: 14, startCol: "A", endCol: "D"},
@@ -635,9 +637,9 @@ func fillInformationsGenerales(f *excelize.File, d Devis) error {
 	if err := set("E7", d.Operateur); err != nil {
 		return err
 	}
-	if err := set("A8", labelValue("Nom de naissance", d.NomNaissance)); err != nil {
-		return err
-	}
+	// A8 ("Nom de naissance") is left unset here: adaptImportantFields fills
+	// it with the same split-size treatment as Nom/Prénom so all three sit
+	// at the same size.
 	if err := set("G9", labelValue("Taille du défunt", withUnit(d.TailleDefunt, "CM"))); err != nil {
 		return err
 	}
