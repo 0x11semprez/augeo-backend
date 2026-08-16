@@ -13,11 +13,23 @@ import (
 // Name of the sheet used in the template workbook.
 const SheetName = "Devis NTR 2026(calculs auto.)"
 
+// printScale replaces the template's original 61% print scale. The template
+// only fills a fraction of an A4 page at 100%, leaving large blank margins
+// top and bottom once converted to PDF; printing larger uses that space
+// instead of wasting it. Value picked empirically so the sheet still fits on
+// a single page.
+var printScale uint = 90
+
 // codeRegexp extracts the prestation code (e.g. "704NTR") at the end of a
 // prestation row's label, such as:
 //
 //	"Frais d'admission ... code 704NTR"
 var codeRegexp = regexp.MustCompile(`code\s+([0-9A-Za-z]+NTR)\s*$`)
+
+// prestationCodeRegexp matches a real prestation code (e.g. "704NTR"): one
+// or more digits followed by "NTR". It excludes look-alike text such as the
+// "code DSPMFNTR" column header, which also ends in "NTR" but isn't a code.
+var prestationCodeRegexp = regexp.MustCompile(`^\d+NTR$`)
 
 // GenerateXLSX opens the template workbook, fills in the devis data,
 // computes the prestation quantities/totals, then saves the result to
@@ -32,8 +44,14 @@ func GenerateXLSX(d Devis, templatePath, outPath string) error {
 	if err := fillInformationsGenerales(f, d); err != nil {
 		return err
 	}
+	if err := fillMentions(f, d); err != nil {
+		return err
+	}
 
 	if err := adaptImportantFields(f); err != nil {
+		return err
+	}
+	if err := repositionCodeHeader(f); err != nil {
 		return err
 	}
 	if err := preparePrestationsLayout(f); err != nil {
@@ -60,6 +78,10 @@ func GenerateXLSX(d Devis, templatePath, outPath string) error {
 	// generated PDF (PDF export produces one page per sheet).
 	if err := keepOnlySheet(f, SheetName); err != nil {
 		return err
+	}
+
+	if err := f.SetPageLayout(SheetName, &excelize.PageLayoutOptions{AdjustTo: &printScale}); err != nil {
+		return fmt.Errorf("setting print scale: %w", err)
 	}
 
 	if err := f.SaveAs(outPath); err != nil {
@@ -94,24 +116,31 @@ func adaptImportantFields(f *excelize.File) error {
 		return fmt.Errorf("merging funeral operator field: %w", err)
 	}
 
+	const headerFontSize = 16
+
 	rowHeights := map[int]float64{}
 	for _, field := range []struct {
-		cell     string
-		row      int
-		lineSize int
+		cell             string
+		row              int
+		startCol, endCol string
+		horizontal       string
 	}{
-		{cell: "A5", row: 5, lineSize: 34},
-		{cell: "A9", row: 9, lineSize: 34},
-		{cell: "E5", row: 5, lineSize: 34},
+		{cell: "A5", row: 5, startCol: "A", endCol: "C"},
+		{cell: "A9", row: 9, startCol: "A", endCol: "C"},
+		{cell: "E5", row: 5, startCol: "E", endCol: "H", horizontal: "center"},
 	} {
-		if err := setAdaptiveHeaderCell(f, field.cell); err != nil {
+		if err := setAdaptiveHeaderCell(f, field.cell, headerFontSize, field.horizontal); err != nil {
 			return err
 		}
 		value, err := f.GetCellValue(SheetName, field.cell)
 		if err != nil {
 			return err
 		}
-		height := headerRowHeight(value, field.lineSize)
+		charsPerLine, err := approxCharsPerLine(f, field.startCol, field.endCol, headerFontSize)
+		if err != nil {
+			return err
+		}
+		height := headerRowHeight(value, charsPerLine)
 		if height > rowHeights[field.row] {
 			rowHeights[field.row] = height
 		}
@@ -124,8 +153,49 @@ func adaptImportantFields(f *excelize.File) error {
 	return nil
 }
 
-func headerRowHeight(value string, charactersPerLine int) float64 {
-	lines := math.Ceil(float64(len([]rune(value))) / float64(charactersPerLine))
+// approxCharsPerLine estimates how many characters at fontSize fit on one
+// line of a merged cell range, from the workbook's actual column widths for
+// that range. This ties the line-wrap decision to the real case size instead
+// of a fixed character count, so it keeps working if the template's columns
+// are ever resized.
+func approxCharsPerLine(f *excelize.File, startCol, endCol string, fontSize float64) (float64, error) {
+	startIdx, err := excelize.ColumnNameToNumber(startCol)
+	if err != nil {
+		return 0, err
+	}
+	endIdx, err := excelize.ColumnNameToNumber(endCol)
+	if err != nil {
+		return 0, err
+	}
+
+	var totalWidth float64
+	for i := startIdx; i <= endIdx; i++ {
+		name, err := excelize.ColumnNumberToName(i)
+		if err != nil {
+			return 0, err
+		}
+		width, err := f.GetColWidth(SheetName, name)
+		if err != nil {
+			return 0, err
+		}
+		totalWidth += width
+	}
+
+	// An Excel column-width unit is calibrated to the width of the "0"
+	// character in the workbook's default font (11pt). Bold characters at a
+	// larger font take up proportionally more horizontal space, so scale the
+	// usable character count down accordingly.
+	const referenceFontSize = 11.0
+	const boldWidthFactor = 0.85
+	chars := totalWidth * (referenceFontSize / fontSize) * boldWidthFactor
+	if chars < 1 {
+		chars = 1
+	}
+	return chars, nil
+}
+
+func headerRowHeight(value string, charsPerLine float64) float64 {
+	lines := math.Ceil(float64(len([]rune(value))) / charsPerLine)
 	if lines < 1 {
 		lines = 1
 	}
@@ -134,7 +204,7 @@ func headerRowHeight(value string, charactersPerLine int) float64 {
 	return math.Max(30, lines*24)
 }
 
-func setAdaptiveHeaderCell(f *excelize.File, cell string) error {
+func setAdaptiveHeaderCell(f *excelize.File, cell string, fontSize float64, horizontal string) error {
 	styleID, err := f.GetCellStyle(SheetName, cell)
 	if err != nil {
 		return err
@@ -151,7 +221,7 @@ func setAdaptiveHeaderCell(f *excelize.File, cell string) error {
 		fontCopy := *style.Font
 		styleCopy.Font = &fontCopy
 	}
-	styleCopy.Font.Size = 16
+	styleCopy.Font.Size = fontSize
 	styleCopy.Font.Bold = true
 	if style.Alignment == nil {
 		styleCopy.Alignment = &excelize.Alignment{}
@@ -161,6 +231,9 @@ func setAdaptiveHeaderCell(f *excelize.File, cell string) error {
 	}
 	styleCopy.Alignment.WrapText = true
 	styleCopy.Alignment.Vertical = "center"
+	if horizontal != "" {
+		styleCopy.Alignment.Horizontal = horizontal
+	}
 
 	newStyleID, err := f.NewStyle(&styleCopy)
 	if err != nil {
@@ -256,6 +329,70 @@ func prestationLabel(value string) string {
 	return strings.TrimSpace(codeRegexp.ReplaceAllString(value, ""))
 }
 
+// repositionCodeHeader moves the "code DSPMFNTR" label out of the narrow
+// rotated column (I15:I24, running the full height of the prestations
+// table) and turns it into a normal horizontal header sitting right above
+// the codes column (E), alongside "Prix unitaire TTC", "Qté" and "Total".
+func repositionCodeHeader(f *excelize.File) error {
+	if err := f.UnmergeCell(SheetName, "A15", "E15"); err != nil {
+		return fmt.Errorf("unmerging prestations header: %w", err)
+	}
+	if err := f.MergeCell(SheetName, "A15", "D15"); err != nil {
+		return fmt.Errorf("re-merging prestations header: %w", err)
+	}
+	if err := f.SetCellValue(SheetName, "E15", "code DSPMFNTR"); err != nil {
+		return err
+	}
+	if err := setLargeBoldCell(f, "E15", 11); err != nil {
+		return err
+	}
+	if err := setPrestationAlignment(f, "E15", "center", true); err != nil {
+		return err
+	}
+
+	if err := f.UnmergeCell(SheetName, "I15", "I24"); err != nil {
+		return fmt.Errorf("unmerging leftover code label column: %w", err)
+	}
+	return f.SetCellValue(SheetName, "I15", "")
+}
+
+// fillMentions writes the fixed checkbox mentions banner at the very top of
+// the order form (row 4, just below the letterhead and above the deceased's
+// identity), so they're the first thing a reader notices.
+func fillMentions(f *excelize.File, d Devis) error {
+	mentions := []struct {
+		label   string
+		checked bool
+	}{
+		{"Paiement par chèque au départ", d.PaiementChequeDepart},
+		{"Très grand", d.TresGrand},
+		{"Arrivée de nuit", d.ArriveeNuit},
+	}
+
+	parts := make([]string, len(mentions))
+	for i, m := range mentions {
+		box := "☐"
+		if m.checked {
+			box = "☒"
+		}
+		parts[i] = box + " " + m.label
+	}
+
+	if err := f.MergeCell(SheetName, "A4", "H4"); err != nil {
+		return fmt.Errorf("merging mentions banner: %w", err)
+	}
+	if err := f.SetCellValue(SheetName, "A4", strings.Join(parts, "     ")); err != nil {
+		return err
+	}
+	if err := setLargeBoldCell(f, "A4", 13); err != nil {
+		return err
+	}
+	if err := setPrestationAlignment(f, "A4", "center", false); err != nil {
+		return err
+	}
+	return f.SetRowHeight(SheetName, 4, 22)
+}
+
 // setPrestationAlignment changes only the alignment of a cell while
 // preserving its existing font, fill, number format and borders.
 func setPrestationAlignment(f *excelize.File, cell, horizontal string, wrapText bool) error {
@@ -306,10 +443,8 @@ func fillInformationsGenerales(f *excelize.File, d Devis) error {
 	if err := set("E5", labelValue("Opérateur Funéraire / Ville", "\n"+d.Operateur)); err != nil {
 		return err
 	}
-	if d.NomJeuneFille != "" {
-		if err := set("A7", labelValue("Nom de jeune fille", d.NomJeuneFille)); err != nil {
-			return err
-		}
+	if err := set("A7", labelValue("Nom de naissance", d.NomNaissance)); err != nil {
+		return err
 	}
 	if err := set("G8", labelValue("Taille du défunt", withUnit(d.TailleDefunt, "CM"))); err != nil {
 		return err
@@ -426,7 +561,7 @@ func listPrestations(f *excelize.File) ([]PrestationLigne, error) {
 				return nil, fmt.Errorf("reading prestation code E%d: %w", rowNum, err)
 			}
 			code = strings.TrimSpace(code)
-			if !strings.HasSuffix(code, "NTR") {
+			if !prestationCodeRegexp.MatchString(code) {
 				continue
 			}
 		}
@@ -484,4 +619,3 @@ func orTiret(value string) string {
 	}
 	return value
 }
-

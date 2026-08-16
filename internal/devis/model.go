@@ -9,10 +9,10 @@ package devis
 // document.
 type Devis struct {
 	// --- Deceased / family information ---
-	Civilite      string `json:"civilite"`      // "M" or "Mme"
-	Nom           string `json:"nom"`           // Last name
-	NomJeuneFille string `json:"nomJeuneFille"` // Optional (maiden name)
-	Prenom        string `json:"prenom"`
+	Civilite     string `json:"civilite"`     // "M" or "Mme"
+	Nom          string `json:"nom"`          // Last name
+	NomNaissance string `json:"nomNaissance"` // Optional (birth name)
+	Prenom       string `json:"prenom"`
 
 	DateNaissance string `json:"dateNaissance"` // "DD/MM/YYYY"
 	DateDeces     string `json:"dateDeces"`     // "DD/MM/YYYY"
@@ -34,6 +34,11 @@ type Devis struct {
 	// --- Funeral operator ---
 	Operateur    string `json:"operateur"`    // Company name / city
 	DateCommande string `json:"dateCommande"` // Order date ("NANTERRE Le ...")
+
+	// --- Mentions (checkboxes shown at the top of the order form) ---
+	PaiementChequeDepart bool `json:"paiementChequeDepart"`
+	TresGrand            bool `json:"tresGrand"`
+	ArriveeNuit          bool `json:"arriveeNuit"`
 
 	// --- Prestations ---
 	// Key = prestation code as printed on the quote (e.g. "704NTR", "756NTR", ...)
