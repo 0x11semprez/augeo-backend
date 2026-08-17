@@ -167,14 +167,15 @@ func adaptImportantFields(f *excelize.File, d Devis) error {
 		startCol, endCol string
 		horizontal       string
 		fontSize         float64
+		bold             bool   // only matters when label == "": setSplitSizeCell controls its own runs' weight
 		label, value     string // when set, cell renders as "label : value" with label at labelFontSize and value at fontSize
 	}{
 		{cell: "A6", row: 6, startCol: "A", endCol: "C", fontSize: identityFontSize, label: "Nom", value: d.Nom},
 		{cell: "A8", row: 8, startCol: "A", endCol: "C", fontSize: identityFontSize, label: "Nom de naissance", value: d.NomNaissance},
 		{cell: "A10", row: 10, startCol: "A", endCol: "C", fontSize: identityFontSize, label: "Prénom", value: d.Prenom},
-		{cell: "E7", row: 7, startCol: "E", endCol: "H", horizontal: "center", fontSize: operatorFontSize},
+		{cell: "E7", row: 7, startCol: "E", endCol: "H", horizontal: "center", fontSize: operatorFontSize, bold: false},
 	} {
-		if err := setAdaptiveHeaderCell(f, field.cell, field.fontSize, field.horizontal); err != nil {
+		if err := setAdaptiveHeaderCell(f, field.cell, field.fontSize, field.horizontal, field.bold); err != nil {
 			return err
 		}
 		if field.label != "" {
@@ -200,18 +201,24 @@ func adaptImportantFields(f *excelize.File, d Devis) error {
 			return err
 		}
 	}
+
+	// The funeral operator's label (E6, filled in by fillInformationsGenerales)
+	// gets the same bold treatment as Nom/Prénom/Nom de naissance's labels,
+	// while its value (E7, just handled above) stays normal weight.
+	if err := setBoldCell(f, "E6"); err != nil {
+		return fmt.Errorf("bolding funeral operator label: %w", err)
+	}
 	return nil
 }
 
 // setSplitSizeCell renders a cell as "label : value" using two rich-text
-// runs so the label and the value can each have their own font size - a
-// single cell's alignment applies uniformly, but rich-text runs each carry
-// their own font, which is what lets the label stay small while the value
-// stands out. Neither run is bold: bold is reserved for the order total
-// (G26), the only figure meant to stand out that way.
+// runs so the label and the value can each have their own font size and
+// weight - a single cell's alignment applies uniformly, but rich-text runs
+// each carry their own font. The label is bold (it's the fixed part a reader
+// recognizes at a glance); the value stays normal weight.
 func setSplitSizeCell(f *excelize.File, cell, label, value string, labelSize, valueSize float64) error {
 	return f.SetCellRichText(SheetName, cell, []excelize.RichTextRun{
-		{Text: label + " : ", Font: &excelize.Font{Family: "Calibri", Size: labelSize}},
+		{Text: label + " : ", Font: &excelize.Font{Family: "Calibri", Size: labelSize, Bold: true}},
 		{Text: value, Font: &excelize.Font{Family: "Calibri", Size: valueSize}},
 	})
 }
@@ -375,7 +382,7 @@ func headerRowHeight(value string, charsPerLine float64) float64 {
 	return math.Max(30, lines*24)
 }
 
-func setAdaptiveHeaderCell(f *excelize.File, cell string, fontSize float64, horizontal string) error {
+func setAdaptiveHeaderCell(f *excelize.File, cell string, fontSize float64, horizontal string, bold bool) error {
 	styleID, err := f.GetCellStyle(SheetName, cell)
 	if err != nil {
 		return err
@@ -393,7 +400,7 @@ func setAdaptiveHeaderCell(f *excelize.File, cell string, fontSize float64, hori
 		styleCopy.Font = &fontCopy
 	}
 	styleCopy.Font.Size = fontSize
-	styleCopy.Font.Bold = true
+	styleCopy.Font.Bold = bold
 	if style.Alignment == nil {
 		styleCopy.Alignment = &excelize.Alignment{}
 	} else {
@@ -405,6 +412,34 @@ func setAdaptiveHeaderCell(f *excelize.File, cell string, fontSize float64, hori
 	if horizontal != "" {
 		styleCopy.Alignment.Horizontal = horizontal
 	}
+
+	newStyleID, err := f.NewStyle(&styleCopy)
+	if err != nil {
+		return err
+	}
+	return f.SetCellStyle(SheetName, cell, cell, newStyleID)
+}
+
+// setBoldCell preserves a cell's existing style (size, alignment, borders,
+// wrapping) and only makes its font bold.
+func setBoldCell(f *excelize.File, cell string) error {
+	styleID, err := f.GetCellStyle(SheetName, cell)
+	if err != nil {
+		return err
+	}
+	style, err := f.GetStyle(styleID)
+	if err != nil {
+		return err
+	}
+
+	styleCopy := *style
+	if style.Font == nil {
+		styleCopy.Font = &excelize.Font{}
+	} else {
+		fontCopy := *style.Font
+		styleCopy.Font = &fontCopy
+	}
+	styleCopy.Font.Bold = true
 
 	newStyleID, err := f.NewStyle(&styleCopy)
 	if err != nil {
