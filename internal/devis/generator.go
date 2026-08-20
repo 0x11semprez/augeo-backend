@@ -569,8 +569,10 @@ const mentionsEmptyRowHeight = 15.75
 // mentionsFontSize and mentionsRowHeight make the checked mentions stand out
 // (large, bold) while leaving visible breathing room between them and the
 // "BON DE COMMANDE..." letterhead box right below.
-const mentionsFontSize = 18
-const mentionsRowHeight = 36
+const (
+	mentionsFontSize  = 18
+	mentionsRowHeight = 36
+)
 
 // fillMentions writes the checkbox mentions banner in row 1, the blank row
 // GenerateXLSX inserts above the "BON DE COMMANDE..." letterhead box, so
