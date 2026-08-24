@@ -40,6 +40,9 @@ type Devis struct {
 	TresGrand            bool `json:"tresGrand"`
 	ArriveeNuit          bool `json:"arriveeNuit"`
 
+	// --- Metadata ---
+	Initiales string `json:"initiales"` // Initials of the person who drafted the devis, printed at the bottom of the form
+
 	// --- Prestations ---
 	// Key = prestation code as printed on the quote (e.g. "704NTR", "756NTR", ...)
 	// Value = ordered quantity. A missing or zero-quantity prestation is not billed.

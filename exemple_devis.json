@@ -21,6 +21,7 @@
   "paiementChequeDepart": true,
   "tresGrand": false,
   "arriveeNuit": true,
+  "initiales": "JD",
   "prestations": {
     "704NTR": 1,
     "756NTR": 1,

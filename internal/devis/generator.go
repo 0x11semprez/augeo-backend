@@ -98,6 +98,10 @@ func GenerateXLSX(d Devis, templatePath, outPath string) error {
 		return err
 	}
 
+	if err := fillInitiales(f, d); err != nil {
+		return err
+	}
+
 	// Keep only the filled-in devis sheet: the "vierge" (blank) and
 	// "FORFAITS" tabs from the template workbook must not show up in the
 	// generated PDF (PDF export produces one page per sheet).
@@ -586,7 +590,7 @@ func fillMentions(f *excelize.File, d Devis) error {
 	}{
 		{"Paiement par chèque au départ", d.PaiementChequeDepart},
 		{"Très grand", d.TresGrand},
-		{"Arrivée de nuit", d.ArriveeNuit},
+		{"Arrivée de nuit/ Dimanche/ Jours fériés", d.ArriveeNuit},
 	}
 
 	var parts []string
@@ -607,7 +611,8 @@ func fillMentions(f *excelize.File, d Devis) error {
 		return f.SetRowHeight(SheetName, 1, mentionsEmptyRowHeight)
 	}
 
-	if err := f.SetCellValue(SheetName, "A1", strings.Join(parts, "     ")); err != nil {
+	joined := strings.Join(parts, "     ")
+	if err := f.SetCellValue(SheetName, "A1", joined); err != nil {
 		return err
 	}
 	if err := setLargeBoldCell(f, "A1", mentionsFontSize); err != nil {
@@ -615,10 +620,33 @@ func fillMentions(f *excelize.File, d Devis) error {
 	}
 	// Top-aligned in a taller row so the text sits close to the top of the
 	// page, leaving visible space below it before the letterhead box starts.
-	if err := setPrestationAlignment(f, "A1", "center", "top", false); err != nil {
+	// Wrapping is on because the longest mention ("Arrivée de nuit/ Dimanche/
+	// Jours fériés") combined with the other two no longer fits on a single
+	// line at this font size.
+	if err := setPrestationAlignment(f, "A1", "center", "top", true); err != nil {
 		return err
 	}
-	return f.SetRowHeight(SheetName, 1, mentionsRowHeight)
+
+	charsPerLine, err := approxCharsPerLine(f, "A", "H", mentionsFontSize)
+	if err != nil {
+		return err
+	}
+	height := headerRowHeight(joined, charsPerLine)
+	if height < mentionsRowHeight {
+		height = mentionsRowHeight
+	}
+	return f.SetRowHeight(SheetName, 1, height)
+}
+
+// fillInitiales prints the initials of the person who drafted the devis at
+// the bottom of the form, in A31 - a cell left free by the template on the
+// same row as "N° DOSSIER CLIENT HOMMAGE Agence" (C31:H31), next to the
+// signature block.
+func fillInitiales(f *excelize.File, d Devis) error {
+	if err := f.SetCellValue(SheetName, "A31", labelValue("Initiales", d.Initiales)); err != nil {
+		return err
+	}
+	return setBoldCell(f, "A31")
 }
 
 // setPrestationAlignment changes only the alignment of a cell while
