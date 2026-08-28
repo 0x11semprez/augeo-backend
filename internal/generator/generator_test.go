@@ -1,9 +1,11 @@
-package devis
+package generator
 
 import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"devis-api/internal/devis"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -16,8 +18,8 @@ const testTemplatePath = "../../template/devis_template.xlsx"
 // would trigger.
 const longValue = "Jean-Baptiste-Alexandre-Maximilien-Bartholomew-Christophe-Wolfgang-VAN DER BERG-MONTGOMERY-DELACROIX-SAINT-EXUPERY-D'ARTAGNAN"
 
-func baseTestDevis() Devis {
-	return Devis{
+func baseTestDevis() devis.Devis {
+	return devis.Devis{
 		Civilite:       "M",
 		Nom:            "Dupont",
 		Prenom:         "Jean",
@@ -42,15 +44,15 @@ var adaptiveFields = []struct {
 	name   string
 	cell   string
 	row    int
-	mutate func(d *Devis, value string)
+	mutate func(d *devis.Devis, value string)
 }{
-	{"Nom", "A6", 6, func(d *Devis, v string) { d.Nom = v }},
-	{"Prenom", "A10", 10, func(d *Devis, v string) { d.Prenom = v }},
-	{"NomNaissance", "A8", 8, func(d *Devis, v string) { d.NomNaissance = v }},
-	{"Operateur", "E7", 7, func(d *Devis, v string) { d.Operateur = v }},
+	{"Nom", "A6", 6, func(d *devis.Devis, v string) { d.Nom = v }},
+	{"Prenom", "A10", 10, func(d *devis.Devis, v string) { d.Prenom = v }},
+	{"NomNaissance", "A8", 8, func(d *devis.Devis, v string) { d.NomNaissance = v }},
+	{"Operateur", "E7", 7, func(d *devis.Devis, v string) { d.Operateur = v }},
 }
 
-func generate(t *testing.T, d Devis) *excelize.File {
+func generate(t *testing.T, d devis.Devis) *excelize.File {
 	t.Helper()
 	out := filepath.Join(t.TempDir(), "devis.xlsx")
 	if err := GenerateXLSX(d, testTemplatePath, out); err != nil {

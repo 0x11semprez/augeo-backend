@@ -1,4 +1,4 @@
-package devis
+package generator
 
 import (
 	"fmt"
@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"devis-api/internal/devis"
 
 	"github.com/xuri/excelize/v2"
 )
@@ -34,7 +36,7 @@ var prestationCodeRegexp = regexp.MustCompile(`^\d+NTR$`)
 // GenerateXLSX opens the template workbook, fills in the devis data,
 // computes the prestation quantities/totals, then saves the result to
 // outPath. The template file itself is never modified (SaveAs).
-func GenerateXLSX(d Devis, templatePath, outPath string) error {
+func GenerateXLSX(d devis.Devis, templatePath, outPath string) error {
 	f, err := excelize.OpenFile(templatePath)
 	if err != nil {
 		return fmt.Errorf("opening template: %w", err)
@@ -139,7 +141,7 @@ func keepOnlySheet(f *excelize.File, sheetToKeep string) error {
 // scans for first) noticeably larger than their printed labels - the labels
 // stay at the same size as every other label on the form. Only the field
 // height grows when a long value needs additional lines.
-func adaptImportantFields(f *excelize.File, d Devis) error {
+func adaptImportantFields(f *excelize.File, d devis.Devis) error {
 	// The operator area is visually a single bordered box spanning E6:H8 in
 	// the template, but only E6 itself was a real cell. It holds two
 	// distinct pieces of text that must not share one alignment: the label
@@ -583,7 +585,7 @@ const (
 // it's the very first thing a reader sees - above the letterhead, not below
 // it. Only mentions the frontend actually checked are printed: an unchecked
 // mention is omitted entirely rather than shown with an empty box.
-func fillMentions(f *excelize.File, d Devis) error {
+func fillMentions(f *excelize.File, d devis.Devis) error {
 	mentions := []struct {
 		label   string
 		checked bool
@@ -652,7 +654,7 @@ const initialesLabel = "Devis établi par"
 // its own boxed field at the bottom of the form. Written as a bordered box
 // matching the "N° DOSSIER CLIENT HOMMAGE Agence" box next to it: as bare
 // bold text the line was easy to miss among the legal mentions.
-func fillInitiales(f *excelize.File, d Devis) error {
+func fillInitiales(f *excelize.File, d devis.Devis) error {
 	if err := f.SetCellValue(SheetName, initialesCell, labelValue(initialesLabel, d.Initiales)); err != nil {
 		return err
 	}
@@ -753,7 +755,7 @@ func setPrestationAlignment(f *excelize.File, cell, horizontal, vertical string,
 // label. We reproduce that principle by replacing the cell's content with
 // "Label : value". If your template evolves and a real input cell is added
 // next to the label, just update the cell constants below.
-func fillInformationsGenerales(f *excelize.File, d Devis) error {
+func fillInformationsGenerales(f *excelize.File, d devis.Devis) error {
 	set := func(cell, value string) error {
 		return f.SetCellValue(SheetName, cell, value)
 	}
@@ -815,7 +817,7 @@ func fillInformationsGenerales(f *excelize.File, d Devis) error {
 // robust: the label can be long/reworded, while the code stays stable),
 // fills in the quantity in column G and computes the total in column H
 // (unit price incl. tax x quantity). Returns the overall order total.
-func fillPrestations(f *excelize.File, d Devis) (float64, error) {
+func fillPrestations(f *excelize.File, d devis.Devis) (float64, error) {
 	lignes, err := listPrestations(f)
 	if err != nil {
 		return 0, err
@@ -860,13 +862,13 @@ func fillPrestations(f *excelize.File, d Devis) (float64, error) {
 // listPrestations scans column A of the table rows (from the row after the
 // "PRESTATIONS" header down to the "Total de la commande" row) and extracts
 // the code, label and unit price incl. tax (column F) for each row.
-func listPrestations(f *excelize.File) ([]PrestationLigne, error) {
+func listPrestations(f *excelize.File) ([]devis.PrestationLigne, error) {
 	rows, err := f.GetRows(SheetName)
 	if err != nil {
 		return nil, err
 	}
 
-	var lignes []PrestationLigne
+	var lignes []devis.PrestationLigne
 	for i, row := range rows {
 		rowNum := i + 1
 		if len(row) == 0 {
@@ -899,7 +901,7 @@ func listPrestations(f *excelize.File) ([]PrestationLigne, error) {
 		}
 		prix, _ := strconv.ParseFloat(strings.ReplaceAll(strings.TrimSpace(raw), ",", "."), 64)
 
-		lignes = append(lignes, PrestationLigne{
+		lignes = append(lignes, devis.PrestationLigne{
 			Code:    code,
 			Libelle: libelle,
 			Row:     rowNum,
@@ -912,7 +914,7 @@ func listPrestations(f *excelize.File) ([]PrestationLigne, error) {
 // ListerPrestationsDisponibles is exposed for the API: lets the frontend
 // dynamically fetch the list of prestations (code, label, price) as defined
 // in the template, without duplicating that information client-side.
-func ListerPrestationsDisponibles(templatePath string) ([]PrestationLigne, error) {
+func ListerPrestationsDisponibles(templatePath string) ([]devis.PrestationLigne, error) {
 	f, err := excelize.OpenFile(templatePath)
 	if err != nil {
 		return nil, err

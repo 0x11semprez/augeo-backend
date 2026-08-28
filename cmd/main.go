@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"devis-api/internal/devis"
+	"devis-api/internal/generator"
 
 	"github.com/google/uuid"
 )
@@ -95,7 +96,7 @@ func withCORS(next http.HandlerFunc) http.HandlerFunc {
 // template (code, label, unit price incl. tax), so the frontend can build
 // its form dynamically without duplicating this information.
 func handleListerPrestations(w http.ResponseWriter, r *http.Request) {
-	lignes, err := devis.ListerPrestationsDisponibles(*templatePath)
+	lignes, err := generator.ListerPrestationsDisponibles(*templatePath)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not read prestations: "+err.Error())
 		return
@@ -121,7 +122,7 @@ func handleGenererDevis(w http.ResponseWriter, r *http.Request) {
 	id := uuid.NewString()
 	xlsxPath := filepath.Join(*workDir, id+".xlsx")
 
-	if err := devis.GenerateXLSX(d, *templatePath, xlsxPath); err != nil {
+	if err := generator.GenerateXLSX(d, *templatePath, xlsxPath); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not generate devis: "+err.Error())
 		return
 	}
