@@ -638,15 +638,80 @@ func fillMentions(f *excelize.File, d Devis) error {
 	return f.SetRowHeight(SheetName, 1, height)
 }
 
-// fillInitiales prints the initials of the person who drafted the devis at
-// the bottom of the form, in A31 - a cell left free by the template on the
-// same row as "N° DOSSIER CLIENT HOMMAGE Agence" (C31:H31), next to the
-// signature block.
+// initialesCell is the cell holding the initials of the person who drafted
+// the devis: A31, left free by the template at the very bottom of the form,
+// on the same row as the "N° DOSSIER CLIENT HOMMAGE Agence" box (C31:H31)
+// and just below the signature block.
+const initialesCell = "A31"
+
+// initialesLabel is printed even when no initials were entered, so the box
+// still reads as a field to fill in by hand on a printed devis.
+const initialesLabel = "Devis établi par"
+
+// fillInitiales prints the initials of the person who drafted the devis in
+// its own boxed field at the bottom of the form. Written as a bordered box
+// matching the "N° DOSSIER CLIENT HOMMAGE Agence" box next to it: as bare
+// bold text the line was easy to miss among the legal mentions.
 func fillInitiales(f *excelize.File, d Devis) error {
-	if err := f.SetCellValue(SheetName, "A31", labelValue("Initiales", d.Initiales)); err != nil {
+	if err := f.SetCellValue(SheetName, initialesCell, labelValue(initialesLabel, d.Initiales)); err != nil {
 		return err
 	}
-	return setBoldCell(f, "A31")
+	return styleInitialesBox(f, initialesCell)
+}
+
+// styleInitialesBox turns a cell into a labelled box: it borrows the fill
+// and font family of the neighbouring "N° DOSSIER CLIENT HOMMAGE Agence"
+// box (C31:H31) so both stay visually consistent if the template is
+// restyled, then closes the border on all four sides - C31 only carries the
+// left segment of that merged range's border - and makes the text bold and
+// left-aligned.
+func styleInitialesBox(f *excelize.File, cell string) error {
+	styleID, err := f.GetCellStyle(SheetName, "C31")
+	if err != nil {
+		return err
+	}
+	style, err := f.GetStyle(styleID)
+	if err != nil {
+		return err
+	}
+
+	// GetStyle returns a style shared with the cells of the neighbouring
+	// box: copy it before changing anything, or they inherit the changes.
+	styleCopy := *style
+	if style.Font == nil {
+		styleCopy.Font = &excelize.Font{}
+	} else {
+		fontCopy := *style.Font
+		styleCopy.Font = &fontCopy
+	}
+	styleCopy.Font.Bold = true
+	styleCopy.Font.Italic = false
+
+	borderStyle, borderColor := 1, "000000"
+	if len(style.Border) > 0 {
+		borderStyle, borderColor = style.Border[0].Style, style.Border[0].Color
+	}
+	styleCopy.Border = make([]excelize.Border, 0, 4)
+	for _, side := range []string{"left", "top", "right", "bottom"} {
+		styleCopy.Border = append(styleCopy.Border, excelize.Border{
+			Type:  side,
+			Style: borderStyle,
+			Color: borderColor,
+		})
+	}
+
+	styleCopy.Alignment = &excelize.Alignment{
+		Horizontal: "left",
+		Vertical:   "center",
+		WrapText:   true,
+		Indent:     1,
+	}
+
+	newStyleID, err := f.NewStyle(&styleCopy)
+	if err != nil {
+		return err
+	}
+	return f.SetCellStyle(SheetName, cell, cell, newStyleID)
 }
 
 // setPrestationAlignment changes only the alignment of a cell while

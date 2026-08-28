@@ -153,3 +153,103 @@ func TestGenerateXLSX_AllLongValuesAtOnceStillOnePage(t *testing.T) {
 	}
 	_ = generate(t, d)
 }
+
+// TestGenerateXLSX_InitialesAreWrittenAtTheBottom checks the initials of the
+// person who drafted the devis end up in the bottom box, and that the label
+// alone is printed when no initials were entered so the box still reads as a
+// field to fill in by hand.
+func TestGenerateXLSX_InitialesAreWrittenAtTheBottom(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		initiales string
+		want      string
+	}{
+		{"filled in", "JD", initialesLabel + " : JD"},
+		{"left empty", "", initialesLabel},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := baseTestDevis()
+			d.Initiales = tc.initiales
+
+			f := generate(t, d)
+			got, err := f.GetCellValue(SheetName, initialesCell)
+			if err != nil {
+				t.Fatalf("GetCellValue: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("expected %s to be %q, got %q", initialesCell, tc.want, got)
+			}
+		})
+	}
+}
+
+// TestGenerateXLSX_InitialesBoxIsClosed checks the initials cell is drawn as
+// a proper box: without a border on all four sides the line reads as loose
+// text lost among the legal mentions, which is how it went unnoticed.
+func TestGenerateXLSX_InitialesBoxIsClosed(t *testing.T) {
+	d := baseTestDevis()
+	d.Initiales = "JD"
+
+	f := generate(t, d)
+	styleID, err := f.GetCellStyle(SheetName, initialesCell)
+	if err != nil {
+		t.Fatalf("GetCellStyle: %v", err)
+	}
+	style, err := f.GetStyle(styleID)
+	if err != nil {
+		t.Fatalf("GetStyle: %v", err)
+	}
+
+	sides := map[string]bool{}
+	for _, border := range style.Border {
+		if border.Style > 0 {
+			sides[border.Type] = true
+		}
+	}
+	for _, side := range []string{"left", "top", "right", "bottom"} {
+		if !sides[side] {
+			t.Fatalf("expected %s to have a %s border, got %+v", initialesCell, side, style.Border)
+		}
+	}
+}
+
+// TestGenerateXLSX_InitialesAreInsidePrintArea guards the actual symptom:
+// a value written outside the print area is silently dropped from the PDF
+// export, so it never reaches the printed devis.
+func TestGenerateXLSX_InitialesAreInsidePrintArea(t *testing.T) {
+	d := baseTestDevis()
+	d.Initiales = "JD"
+
+	f := generate(t, d)
+	names := f.GetDefinedName()
+	var printArea string
+	for _, name := range names {
+		if name.Name == "_xlnm.Print_Area" && name.Scope == SheetName {
+			printArea = name.RefersTo
+		}
+	}
+	if printArea == "" {
+		t.Fatalf("no print area defined for %s, got %+v", SheetName, names)
+	}
+
+	col, row, err := excelize.CellNameToCoordinates(initialesCell)
+	if err != nil {
+		t.Fatalf("CellNameToCoordinates: %v", err)
+	}
+	rangeRef := printArea[strings.Index(printArea, "!")+1:]
+	firstCell, lastCell, ok := strings.Cut(strings.ReplaceAll(rangeRef, "$", ""), ":")
+	if !ok {
+		t.Fatalf("unexpected print area %q", printArea)
+	}
+	firstCol, firstRow, err := excelize.CellNameToCoordinates(firstCell)
+	if err != nil {
+		t.Fatalf("CellNameToCoordinates(%q): %v", firstCell, err)
+	}
+	lastCol, lastRow, err := excelize.CellNameToCoordinates(lastCell)
+	if err != nil {
+		t.Fatalf("CellNameToCoordinates(%q): %v", lastCell, err)
+	}
+	if col < firstCol || col > lastCol || row < firstRow || row > lastRow {
+		t.Fatalf("expected %s to be inside print area %s", initialesCell, printArea)
+	}
+}
